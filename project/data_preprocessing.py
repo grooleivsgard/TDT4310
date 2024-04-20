@@ -6,8 +6,12 @@ import spacy
 import re
 import models as md
 from pathlib import Path
+from transformers import BertTokenizer, AutoTokenizer, AutoModelForTokenClassification, pipeline, TFAutoModelForSequenceClassification, optimization_tf, AutoConfig
+from models import model_name
 
-nlp_nb = spacy.load('nb_core_news_md')
+tokenizer_nb = AutoTokenizer.from_pretrained("NbAiLab/nb-bert-base-ner")
+nlp_nb = pipeline("ner", model=model_name, tokenizer=tokenizer_nb)
+nlp = spacy.load('nb_core_news_md') #skriv denne i terminal "python -m spacy download nb_core_news_md"
 
 
 # ----------------- Data Loading -----------------
@@ -132,7 +136,7 @@ def clean_text(text: str, stopwords: set) -> str:
 
     # tokenizes, POS tags, dependency parsing
     text = re.sub(r'\s+', ' ', text.lower().replace('\n', ' '))
-    doc = nlp_nb(text)
+    doc = nlp(text)
     
     # lemmatize the tokens, remove stopwords, punctuation, and short words (<= 1 character)
     cleaned_text = ' '.join([token.lemma_ for token in doc 

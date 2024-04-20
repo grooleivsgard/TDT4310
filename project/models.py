@@ -10,37 +10,21 @@ from transformers import BertTokenizer, AutoTokenizer, AutoModelForTokenClassifi
 import tensorflow as tf # provided by Hugging Face
 import math
 from sklearn.metrics import classification_report
+import numpy as np
+from imblearn.over_sampling import SMOTE
 
 model_name = "NbAiLab/nb-bert-base"
-
-# vurder å fjerne:
-tokenizer_nb = AutoTokenizer.from_pretrained("NbAiLab/nb-bert-base-ner")
-nlp_nb = pipeline("ner", model=model_name, tokenizer=tokenizer_nb)
-
-
-# undersample to balance the classes
-def undersample(df):
-    # separate majority (non-love poems) and minority (love poems) classes
-    df_majority = df[df.is_love_poem==0]
-    df_minority = df[df.is_love_poem==1]
-    
-    # downsample majority class (for example, to the same size as the minority class)
-    df_majority_downsampled = df_majority.sample(300, random_state=42)
-    
-    # combine minority class with downsampled majority class
-    df_downsampled = pd.concat([df_majority_downsampled, df_minority])
-    
-    return df_downsampled
 
 # turn test and train data into tf-idf matrices
 def get_vectorizer(train_data, test_data):
 
     vectorizer = TfidfVectorizer()
 
-    # convert all poems to term-document matrix
-    X_train = vectorizer.fit_transform(train_data) # fit_transform creates the tf-idf matrix based on the training data
-    X_test = vectorizer.transform(test_data) # transform uses the same vectorizer to create the tf-idf matrix for the test data
-
+    # convert all poems to term-document matrix:
+    # the vectorizer estimates word counts and learns the tf-idf weights on the training data, then transforms the training data into a tf-idf matrix with fit_transform
+    X_train = vectorizer.fit_transform(train_data) # 
+    # the vectorizer then use the same weights from the training data to transform the test data
+    X_test = vectorizer.transform(test_data) 
     return X_train, X_test
     
 
@@ -54,7 +38,7 @@ def split_data(df, with_validation_set=False):
     # split the test data into test and validation sets
     if with_validation_set:
         # split the training data into training (now 60% of the total data) and validation sets (20% of the total data)
-        X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=1) # 0.25 x 0.8 = 0.2
+        X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=1)
         print("Data is split into training, testing and validation sets.")
         # print a sample from each set
         return X_train, X_test, X_val, y_train, y_test, y_val
@@ -72,16 +56,6 @@ def train_classifier(X_train, X_test, y_train, y_test):
 
     # predict the test data
     predictions = clf.predict(X_test)
-    
-    '''
-    # calculate the accuracy
-    accuracy = accuracy_score(y_test, predictions)
-
-    # calculate the precision
-    precision = precision_score(y_test, predictions)
-
-    # calculate the recall
-    recall = recall_score(y_test, predictions)'''
 
     # confusion matrix 
     cm = confusion_matrix(y_test, predictions, labels=clf.classes_)
@@ -90,7 +64,6 @@ def train_classifier(X_train, X_test, y_train, y_test):
     plt.title(f"Confusion matrix for {clf.__class__.__name__} \n\nData size: {len(y_test)} test data / {len(y_train)} training data")
     plt.show()
     print(classification_report(y_test, predictions, digits=4))
-
 
 
 def train_bert(X_train, X_test, X_val, y_train, y_test, y_val):
@@ -104,13 +77,14 @@ def train_bert(X_train, X_test, X_val, y_train, y_test, y_val):
 
     max_seq_length = 128 # maximum sequence length for the input, can be increased if needed
 
-    # Initialize the tokenizer
+    # initialize the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
         use_fast=True,
     )
 
     # (2) load and prepare dataset
+    # text inputs need to be transformed to numeric token ids and arranged in several Tensors before being input to BERT (source: https://www.tensorflow.org/text/tutorials/classify_text_with_bert)
     # turn text into tokens
     train_encodings = tokenizer(X_train.tolist(), truncation=True, padding=True, max_length=max_seq_length, return_tensors="tf")
     val_encodings = tokenizer(X_val.tolist(), truncation=True, padding=True, max_length=max_seq_length, return_tensors="tf")
@@ -167,3 +141,35 @@ def train_bert(X_train, X_test, X_val, y_train, y_test, y_val):
     y_pred = model.predict(model.test_dataset)
     y_pred_bool = y_pred["logits"].argmax(-1)
     print(classification_report(y_test, y_pred_bool, digits=4))
+
+# oversample the training data
+def oversample(X_train, y_train):
+    oversample = SMOTE()
+    X, y = oversample.fit_resample(X_train, y_train)
+    return X, y
+
+# undersample to balance the classes - not used in the final version because of small dataset
+def undersample(df):
+    # separate majority (non-love poems) and minority (love poems) classes
+    df_majority = df[df.is_love_poem==0]
+    df_minority = df[df.is_love_poem==1]
+    
+    # downsample majority class (for example, to the same size as the minority class)
+    df_majority_downsampled = df_majority.sample(300, random_state=42)
+    
+    # combine minority class with downsampled majority class
+    df_downsampled = pd.concat([df_majority_downsampled, df_minority])
+    
+    return df_downsampled
+
+# plot the distribution of classes in the training set
+def plot_distribution(y_train):
+    # Plotting the distribution of classes in the training set
+    # Count the occurrences of each class
+    class_counts = y_train.value_counts()
+    plt.bar(class_counts.index, class_counts.values, color=['blue', 'orange'])
+    plt.title("Distribution of Majority and Minority Classes in Training Set")
+    plt.xlabel("Class")
+    plt.ylabel("Number of Instances")
+    plt.xticks(class_counts.index, ['Majority Class', 'Minority Class'])  # Assuming 0 is majority, 1 is minority
+    plt.show()
